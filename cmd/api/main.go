@@ -34,6 +34,9 @@ type config struct {
 		password string
 		sender   string
 	}
+	jwt struct {
+		secret string 
+		 }
 }
 
 type application struct {
@@ -63,6 +66,7 @@ func main() {
 	flag.StringVar(&cfg.smtp.password, "smtp-password", os.Getenv("MAILTRAP_PASSWORD"), "Mailtrap password")
 	flag.StringVar(&cfg.smtp.sender, "smtp-sender", os.Getenv("MAILTRAP_SENDER"), "Mailtrap sender")
 	flag.StringVar(&cfg.smtp.username, "smtp-username", os.Getenv("MAILTRAP_USERNAME"), "Mailtrap username")
+	flag.StringVar(&cfg.jwt.secret, "jwt-secret", os.Getenv("JWT_SECRET"), "JWT secret")
 	flag.Parse()
 
 	logger := jsonlog.New(os.Stdout, jsonlog.LevelInfo)

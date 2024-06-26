@@ -14,23 +14,27 @@ var (
 	ErrDuplicateEmail = errors.New("duplicate email")
 )
 
+var AnonymousUser = &User{}
 
 type User struct {
-	ID        int64          `json:"id"`
-	CreatedAt time.Time		 `json:"created_at"`
-	Name      string         `json:"name"`
-	Email     string		 `json:"email"`
-	Password  password       `json:"-"`
-	Activated bool           `json:"activated"`
-	Version   int			 `json:"-"`
+	ID        int64     `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	Password  password  `json:"-"`
+	Activated bool      `json:"activated"`
+	Version   int       `json:"-"`
+	
+}
+
+func (u *User) IsAnonymous() bool {
+	return u == AnonymousUser
 }
 
 type password struct {
 	plaintext *string
 	hash      []byte
 }
-
-
 
 type UserModel struct {
 	DB *sql.DB
@@ -60,29 +64,27 @@ func (p *password) Matches(plaintextPassword string) (bool, error) {
 }
 
 func ValidateEmail(v *validator.Validator, email string) {
-    v.Check(email != "", "email", "must be provided")
-    v.Check(validator.Matches(email, validator.EmailRX), "email", "must be a valid email address")
+	v.Check(email != "", "email", "must be provided")
+	v.Check(validator.Matches(email, validator.EmailRX), "email", "must be a valid email address")
 }
 
 func ValidatePasswordPlaintext(v *validator.Validator, password string) {
-    v.Check(password != "", "password", "must be provided")
-    v.Check(len(password) >= 8, "password", "must be at least 8 bytes long")
-    v.Check(len(password) <= 72, "password", "must not be more than 72 bytes long")
+	v.Check(password != "", "password", "must be provided")
+	v.Check(len(password) >= 8, "password", "must be at least 8 bytes long")
+	v.Check(len(password) <= 72, "password", "must not be more than 72 bytes long")
 }
 
 func ValidateUser(v *validator.Validator, user *User) {
-    v.Check(user.Name != "", "name", "must be provided")
-    v.Check(len(user.Name) <= 500, "name", "must not be more than 500 bytes long")
-    ValidateEmail(v, user.Email)
-    if user.Password.plaintext != nil {
-        ValidatePasswordPlaintext(v, *user.Password.plaintext)
-    }
-    if user.Password.hash == nil {
-        panic("missing password hash for user")
-    }
+	v.Check(user.Name != "", "name", "must be provided")
+	v.Check(len(user.Name) <= 500, "name", "must not be more than 500 bytes long")
+	ValidateEmail(v, user.Email)
+	if user.Password.plaintext != nil {
+		ValidatePasswordPlaintext(v, *user.Password.plaintext)
+	}
+	if user.Password.hash == nil {
+		panic("missing password hash for user")
+	}
 }
-
-
 
 func (m UserModel) Insert(user *User) error {
 	query := `
@@ -151,4 +153,35 @@ func (m UserModel) Update(user *User) error {
 		}
 	}
 	return nil
+}
+func (m UserModel) Get(id int64) (*User, error) {
+    query := `
+        SELECT id, created_at, name, email, password_hash, activated, version
+        FROM users
+        WHERE id = $1
+    `
+
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    var user User
+    err := m.DB.QueryRowContext(ctx, query, id).Scan(
+        &user.ID,
+        &user.CreatedAt,
+        &user.Name,
+        &user.Email,
+        &user.Password.hash,
+        &user.Activated,
+        &user.Version,
+    )
+    if err != nil {
+        switch {
+        case errors.Is(err, sql.ErrNoRows):
+            return nil, ErrRecordNotFound
+        default:
+            return nil, err
+        }
+    }
+
+    return &user, nil
 }
