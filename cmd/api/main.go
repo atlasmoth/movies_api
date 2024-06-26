@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"flag"
+	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/atlasmoth/movies_api/internal/data"
 	"github.com/atlasmoth/movies_api/internal/jsonlog"
+	"github.com/atlasmoth/movies_api/internal/mailer"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
@@ -23,16 +27,28 @@ type config struct {
 		maxIdleConns int
 		maxIdleTime  string
 	}
+	smtp struct {
+		host     string
+		port     int
+		username string
+		password string
+		sender   string
+	}
 }
 
 type application struct {
 	config config
 	logger *jsonlog.Logger
 	models data.Models
+	mailer mailer.Mailer
+	wg     sync.WaitGroup
 }
 
 func main() {
-
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 	var cfg config
 
 	flag.IntVar(&cfg.port, "port", 4000, "API server port")
@@ -41,6 +57,12 @@ func main() {
 	flag.IntVar(&cfg.db.maxOpenConns, "db-max-open-conns", 25, "PostgreSQL max open connections")
 	flag.IntVar(&cfg.db.maxIdleConns, "db-max-idle-conns", 25, "PostgreSQL max idle connections")
 	flag.StringVar(&cfg.db.maxIdleTime, "db-max-idle-time", "15m", "PostgreSQL max connection idle time")
+
+	flag.IntVar(&cfg.smtp.port, "smtp-port", 2525, "Mailtrap port")
+	flag.StringVar(&cfg.smtp.host, "smtp-host", os.Getenv("MAILTRAP_HOST"), "Mailtrap host")
+	flag.StringVar(&cfg.smtp.password, "smtp-password", os.Getenv("MAILTRAP_PASSWORD"), "Mailtrap password")
+	flag.StringVar(&cfg.smtp.sender, "smtp-sender", os.Getenv("MAILTRAP_SENDER"), "Mailtrap sender")
+	flag.StringVar(&cfg.smtp.username, "smtp-username", os.Getenv("MAILTRAP_USERNAME"), "Mailtrap username")
 	flag.Parse()
 
 	logger := jsonlog.New(os.Stdout, jsonlog.LevelInfo)
@@ -59,11 +81,13 @@ func main() {
 		config: cfg,
 		logger: logger,
 		models: data.NewModels(db),
+		mailer: mailer.New(cfg.smtp.host, cfg.smtp.port, cfg.smtp.username, cfg.smtp.password, cfg.smtp.sender),
 	}
 
 	err = app.serve()
-	 if err != nil {
-		logger.PrintFatal(err, nil) }
+	if err != nil {
+		logger.PrintFatal(err, nil)
+	}
 }
 
 func openDB(cfg config) (*sql.DB, error) {
